@@ -92,3 +92,141 @@
 # {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
 # {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
 #
+
+# --- Importación de librerías ---
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import precision_score, balanced_accuracy_score, recall_score, f1_score, confusion_matrix
+import pickle
+import gzip
+import os
+import json
+
+# --- Carga de datos comprimidos ---
+zip_train_path = 'files/input/train_data.csv.zip'
+zip_test_path = 'files/input/test_data.csv.zip'
+
+df_train = pd.read_csv(zip_train_path, compression='zip', index_col=False)
+df_test = pd.read_csv(zip_test_path, compression='zip', index_col=False)
+
+# --- Renombrar columna objetivo ---
+df_train.rename(columns={'default payment next month': 'default'}, inplace=True)
+df_test.rename(columns={'default payment next month': 'default'}, inplace=True)
+
+# --- Limpieza básica ---
+df_train.drop(columns='ID', inplace=True)
+df_test.drop(columns='ID', inplace=True)
+
+df_train['EDUCATION'].replace(0, np.nan, inplace=True)
+df_test['EDUCATION'].replace(0, np.nan, inplace=True)
+
+df_train['MARRIAGE'].replace(0, np.nan, inplace=True)
+df_test['MARRIAGE'].replace(0, np.nan, inplace=True)
+
+df_train.dropna(inplace=True)
+df_test.dropna(inplace=True)
+
+df_train.loc[df_train['EDUCATION'] > 4, 'EDUCATION'] = 4
+df_test.loc[df_test['EDUCATION'] > 4, 'EDUCATION'] = 4
+
+# --- Conversión de variables categóricas ---
+categorical_vars = ['EDUCATION', 'SEX', 'MARRIAGE']
+for feature in categorical_vars:
+    df_train[feature] = df_train[feature].astype('category')
+    df_test[feature] = df_test[feature].astype('category')
+
+# --- Separación de variables ---
+X_train = df_train.drop(columns='default')
+y_train = df_train['default']
+
+X_test = df_test.drop(columns='default')
+y_test = df_test['default']
+
+X_train_cat = X_train.select_dtypes(include='category')
+X_train_num = X_train.select_dtypes(exclude='category')
+
+# --- Construcción del pipeline ---
+cat_pipe = Pipeline([
+    ('ohe', OneHotEncoder(drop='first', handle_unknown='ignore'))
+])
+
+num_pipe = Pipeline([
+    ('std_scaler', StandardScaler())
+])
+
+column_prep = ColumnTransformer([
+    ('num_features', num_pipe, X_train_num.columns),
+    ('cat_features', cat_pipe, X_train_cat.columns)
+])
+
+full_pipeline = Pipeline([
+    ('prep', column_prep),
+    ('clf', RandomForestClassifier())
+])
+
+# --- GridSearch con validación cruzada ---
+search_params = {
+    'clf__n_estimators': [50, 100, 200],
+    'clf__max_depth': [5, 10, 20]
+}
+
+grid = GridSearchCV(full_pipeline, param_grid=search_params, cv=10, scoring='balanced_accuracy')
+grid.fit(X_train, y_train)
+
+# --- Guardar modelo en disco ---
+os.makedirs('files/models', exist_ok=True)
+with gzip.open('files/models/model.pkl.gz', 'wb') as output_model:
+    pickle.dump(grid, output_model)
+
+
+y_pred_train = grid.predict(X_train)
+y_pred_test = grid.predict(X_test)
+
+train_metrics = {
+    'type': 'metrics',
+    'dataset': 'train',
+    'precision': precision_score(y_train, y_pred_train),
+    'balanced_accuracy': balanced_accuracy_score(y_train, y_pred_train),
+    'recall': recall_score(y_train, y_pred_train),
+    'f1_score': f1_score(y_train, y_pred_train)
+}
+
+test_metrics = {
+    'type': 'metrics',
+    'dataset': 'test',
+    'precision': precision_score(y_test, y_pred_test),
+    'balanced_accuracy': balanced_accuracy_score(y_test, y_pred_test),
+    'recall': recall_score(y_test, y_pred_test),
+    'f1_score': f1_score(y_test, y_pred_test)
+}
+
+# --- Matrices de confusión ---
+train_cm = confusion_matrix(y_train, y_pred_train)
+test_cm = confusion_matrix(y_test, y_pred_test)
+
+train_cm_dict = {
+    'type': 'cm_matrix',
+    'dataset': 'train',
+    'true_0': {"predicted_0": train_cm[0, 0], "predicted_1": train_cm[0, 1]},
+    'true_1': {"predicted_0": train_cm[1, 0], "predicted_1": train_cm[1, 1]}
+}
+
+test_cm_dict = {
+    'type': 'cm_matrix',
+    'dataset': 'test',
+    'true_0': {"predicted_0": test_cm[0, 0], "predicted_1": test_cm[0, 1]},
+    'true_1': {"predicted_0": test_cm[1, 0], "predicted_1": test_cm[1, 1]}
+}
+
+# --- Guardar métricas en archivo JSON ---
+all_metrics = [train_metrics, test_metrics, train_cm_dict, test_cm_dict]
+
+os.makedirs('files/output', exist_ok=True)
+with open('files/output/metrics.json', 'w') as metrics_file:
+    for metric in all_metrics:
+        metrics_file.write(json.dumps(metric) + '\n')

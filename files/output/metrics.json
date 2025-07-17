@@ -1,0 +1,2 @@
+{"type": "metrics", "dataset": "train", "precision": 0.8342412451361868, "balanced_accuracy": 0.7137528447141461, "recall": 0.45375661375661375, "f1_score": 0.5877998629198081}
+{"type": "metrics", "dataset": "test", "precision": 0.6718181818181819, "balanced_accuracy": 0.6683419085243397, "recall": 0.3877229800629591, "f1_score": 0.4916833000665336}
