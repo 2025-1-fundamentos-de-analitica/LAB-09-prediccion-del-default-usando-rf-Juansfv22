@@ -171,8 +171,8 @@ full_pipeline = Pipeline([
 
 # --- GridSearch con validación cruzada ---
 search_params = {
-    'clf__n_estimators': [50, 100, 200],
-    'clf__max_depth': [5, 10, 20]
+    'clf__n_estimators': [50, 100, 150],
+    'clf__max_depth': [5, 10, 15]
 }
 
 grid = GridSearchCV(full_pipeline, param_grid=search_params, cv=10, scoring='balanced_accuracy')
